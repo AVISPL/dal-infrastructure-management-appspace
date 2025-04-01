@@ -77,13 +77,16 @@ public class Util {
 	 * Retrieves an aggregator property based on the specified type and integer value.
 	 *
 	 * @param property The type of aggregator property.
-	 * @param value The integer value associated with the property.
+	 * @param value The number value associated with the property.
 	 * @return The formatted property value.
 	 */
-	public static String getAggregatorProperty(AggregatorProperty property, int value) {
+	public static <T extends Number> String getAggregatorProperty(AggregatorProperty property, T value) {
 		switch (property) {
 			case LAST_MONITORING_CYCLE_DURATION:
-				return String.valueOf(Math.max(value, 0));
+				if (value == null) return "0";
+				return value.longValue() >= 1000
+						? String.valueOf((int) (value.longValue() / 1000))
+						: String.format("%.2f", Math.round((value.longValue() / 1000.0) * 100) / 100.0);
 			case MONITORED_DEVICES_TOTAL:
 				return String.valueOf(value);
 			default:
@@ -151,7 +154,6 @@ public class Util {
 	 * @param settingProperty The setting property to retrieve.
 	 * @return The value of the specified property.
 	 * @throws ResourceNotReachableException if the properties list is empty.
-	 * @throws ResourceNotReachableException if the settingProperty is null.
 	 */
 	public static String getDevicePropertyValueBySettingProperty(List<Property> properties, SettingProperty settingProperty) {
 		if (properties == null || properties.isEmpty()) {
@@ -161,9 +163,7 @@ public class Util {
 			throw new ResourceNotReachableException(Constant.GENERAL_PROPERTY_NOT_NULL);
 		}
 		Property property = properties.stream().filter(p -> p.getKey().equals(settingProperty.getKey())).findFirst().orElse(null);
-		if (property == null) {
-			throw new ResourceNotReachableException(Constant.PROPERTY_IS_NULL + " with {SettingProperty}: " + settingProperty);
-		}
+		if (property == null) return null;
 
 		return property.getKey().equals(SettingProperty.RESPONSIVE.getKey())
 				? property.getValue().toLowerCase()

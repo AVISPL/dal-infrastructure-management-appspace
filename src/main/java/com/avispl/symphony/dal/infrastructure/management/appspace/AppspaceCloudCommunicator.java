@@ -146,8 +146,8 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() * ONE_MINUTE_OF_MILLISECONDS;
-					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
+					nextCollectionTime = System.currentTimeMillis() + ONE_MINUTE_OF_MILLISECONDS;
+					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
 					flag = false;
 				}
 			}
@@ -209,7 +209,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * Duration (in milliseconds) of the last monitoring cycle.
 	 */
-	private long lastMonitoringCycleDuration;
+	private Long lastMonitoringCycleDuration;
 
 	/**
 	 * Indicates whether the device is paused.
@@ -273,7 +273,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		this.executorService = null;
 		this.appspaceCloudDataLoader = null;
 		this.nextCollectionTime = System.currentTimeMillis();
-		this.lastMonitoringCycleDuration = System.currentTimeMillis();
+		this.lastMonitoringCycleDuration = null;
 		this.devicePaused = true;
 		this.flag = false;
 		this.authorization = new Authorization();
@@ -327,7 +327,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 			Arrays.stream(AggregatorProperty.values()).forEach(property -> {
 				String value;
 				if (AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getName().equals(property.getName())) {
-					value = Util.getAggregatorProperty(property, (int) this.lastMonitoringCycleDuration);
+					value = Util.getAggregatorProperty(property, this.lastMonitoringCycleDuration);
 				} else if (AggregatorProperty.MONITORED_DEVICES_TOTAL.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.aggregatedDevices.size());
 				} else {

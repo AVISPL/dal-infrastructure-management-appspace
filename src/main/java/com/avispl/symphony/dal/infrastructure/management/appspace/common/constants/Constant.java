@@ -20,7 +20,6 @@ public class Constant {
 	private Constant() {
 	}
 
-	public static final String AUTHORIZATION = "Authorization";
 	public static final String ITEMS = "items";
 	public static final String ONLINE = "Online";
 	public static final String SETTING_GROUP = "Setting";
@@ -35,5 +34,4 @@ public class Constant {
 	public static final String DEVICE_NOT_NULL = "Device must not be null";
 	public static final String DEVICE_PROPERTIES_NOT_EMPTY = "Device properties must not be empty";
 	public static final String GENERAL_PROPERTY_NOT_NULL = "General property must not be null";
-	public static final String PROPERTY_IS_NULL = "Device property is null";
 }
