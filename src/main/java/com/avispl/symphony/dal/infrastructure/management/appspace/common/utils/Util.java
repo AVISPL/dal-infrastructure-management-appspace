@@ -112,7 +112,7 @@ public class Util {
 			case LOCATION_NAME:
 				return device.getLocationName();
 			case GROUP_NAME:
-				return device.getGroupName();
+				return device.getGroupName() == null || device.getGroupName().trim().isEmpty() ? null : device.getGroupName();
 			case STATUS:
 				return device.getStatus();
 			case APP_VERSION:
