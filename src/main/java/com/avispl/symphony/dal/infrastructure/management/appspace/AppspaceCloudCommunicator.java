@@ -97,7 +97,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Internal runnable class responsible for periodically fetching data from the Appspace Cloud.
 	 */
 	class AppspaceCloudDataLoader implements Runnable {
-		private static final long ONE_MINUTE_OF_MILLISECONDS = 60000L;
+		private static final long POLLING_CYCLE_INTERVAL = 60000L;
 
 		private volatile boolean inProgress;
 
@@ -146,7 +146,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() + ONE_MINUTE_OF_MILLISECONDS;
+					nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
 					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
 					flag = false;
 				}
