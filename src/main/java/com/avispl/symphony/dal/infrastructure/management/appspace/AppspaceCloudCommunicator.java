@@ -3,7 +3,6 @@
  */
 package com.avispl.symphony.dal.infrastructure.management.appspace;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -22,11 +21,13 @@ import org.springframework.http.HttpMethod;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import javax.security.auth.login.FailedLoginException;
 
 import com.avispl.symphony.api.common.error.NotAuthorizedException;
 import com.avispl.symphony.api.dal.dto.monitor.ExtendedStatistics;
 import com.avispl.symphony.api.dal.dto.monitor.Statistics;
 import com.avispl.symphony.api.dal.dto.monitor.aggregator.AggregatedDevice;
+import com.avispl.symphony.api.dal.error.CommandFailureException;
 import com.avispl.symphony.api.dal.error.ResourceNotReachableException;
 import com.avispl.symphony.api.dal.monitor.Monitorable;
 import com.avispl.symphony.api.dal.monitor.aggregator.Aggregator;
@@ -252,11 +253,6 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private List<AggregatedDevice> aggregatedDevices;
 
 	/**
-	 * Timestamp indicating when the access token was last updated.
-	 */
-	private LocalDateTime accessTokenTime;
-
-	/**
 	 * Identifier for the device location.
 	 */
 	private String locationId;
@@ -281,7 +277,6 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		this.aggregatedDevices = new ArrayList<>();
 		this.devicesProperties = new HashMap<>();
 		this.cachedDevicesProperties = new HashMap<>();
-		this.accessTokenTime = LocalDateTime.now();
 
 		this.loadProperties(this.applicationProperties);
 		this.setAuthenticationScheme(AuthenticationScheme.None);
@@ -308,6 +303,9 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 	@Override
 	protected void authenticate() throws Exception {
+		if (StringUtils.isNullOrEmpty(this.getLogin()) || StringUtils.isNullOrEmpty(this.getPassword())) {
+			throw new FailedLoginException(Constant.LOGIN_FAILED);
+		}
 	}
 
 	@Override
@@ -409,7 +407,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		this.cachedDevicesProperties.clear();
 		this.devicesProperties.clear();
 		this.devices.clear();
-		this.authorization = new Authorization();
+		this.authorization = null;
 		super.internalDestroy();
 	}
 
@@ -430,7 +428,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * Sets up the necessary data for processing.
 	 */
-	private void setupData() {
+	private void setupData() throws FailedLoginException {
 		this.authorization = this.getAuthorizationData();
 		this.devices = this.getDevicesData();
 	}
@@ -473,20 +471,13 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 *
 	 * @return an {@code Authorization} object.
 	 */
-	private Authorization getAuthorizationData() {
+	private Authorization getAuthorizationData() throws FailedLoginException {
 		try {
-			if (this.authorization != null && Util.isNotTokenExpires(this.accessTokenTime)) {
-				return this.authorization;
-			}
-
-			if (StringUtils.isNullOrEmpty(getLogin()) || StringUtils.isNullOrEmpty(getPassword())) {
-				throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED);
-			}
 			AuthorizationReq req = new AuthorizationReq(getPassword(), getLogin());
-			Authorization authorizationRes = doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
-			this.accessTokenTime = LocalDateTime.now().plusSeconds(authorizationRes.getExpiresIn());
 
-			return authorizationRes;
+			return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
+		} catch (CommandFailureException | FailedLoginException e) {
+			throw new FailedLoginException(Constant.LOGIN_FAILED);
 		} catch (Exception e) {
 			throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED, e);
 		}
