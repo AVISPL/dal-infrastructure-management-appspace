@@ -18,7 +18,7 @@ public enum GeneralProperty {
 	GROUP_NAME("GroupName"),
 	STATUS("Status"),
 	APP_VERSION("AppVersion"),
-	LAST_ONLINE("LastOnline(+UTC)"),
+	LAST_ONLINE("LastOnline(UTC)"),
 	TAGS("Tags"),
 	LICENSES("Licenses"),
 	CHANNEL_NAME("ChannelName"),
