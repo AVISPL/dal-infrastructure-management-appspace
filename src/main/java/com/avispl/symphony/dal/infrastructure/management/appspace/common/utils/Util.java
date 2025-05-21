@@ -6,7 +6,6 @@ package com.avispl.symphony.dal.infrastructure.management.appspace.common.utils;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -168,18 +167,6 @@ public class Util {
 		return property.getKey().equals(SettingProperty.RESPONSIVE.getKey())
 				? property.getValue().toLowerCase()
 				: property.getValue();
-	}
-
-	/**
-	 * Checks whether a given timestamp has not expired.
-	 *
-	 * @param checkDateTime The timestamp to check.
-	 * @return {@code true} if the timestamp is in the future; otherwise, {@code false}.
-	 */
-	public static boolean isNotTokenExpires(LocalDateTime checkDateTime) {
-		LocalDateTime currentDateTime = LocalDateTime.now();
-
-		return checkDateTime.isAfter(currentDateTime);
 	}
 
 	/**
