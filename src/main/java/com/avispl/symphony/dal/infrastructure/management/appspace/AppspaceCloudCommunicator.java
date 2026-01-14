@@ -134,8 +134,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 						List<Property> properties = getDevicePropertiesDataByDeviceId(device.getId());
 						newDevicesProperties.put(device.getId(), properties);
 					});
-					cachedDevicesProperties.clear();
-					cachedDevicesProperties.putAll(newDevicesProperties);
+					cachedDevicesProperties = Collections.unmodifiableMap(newDevicesProperties);
 					flag = true;
 				}
 
@@ -245,7 +244,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * Cached map of device properties to reduce redundant computations.
 	 */
-	private final Map<String, List<Property>> cachedDevicesProperties;
+	private volatile Map<String, List<Property>> cachedDevicesProperties;
 
 	/**
 	 * List of aggregated devices containing summarized data.
@@ -356,24 +355,24 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		}
 
 		List<AggregatedDevice> newAggregatedDevices = new ArrayList<>();
-		this.devicesProperties.entrySet().parallelStream().forEach(deviceProperties -> {
-			Device device = this.devices.stream().filter(d -> d.getId().equals(deviceProperties.getKey())).findAny().orElse(null);
-			if (device != null) {
-				AggregatedDevice aggregatedDevice = new AggregatedDevice();
-				aggregatedDevice.setDeviceId(deviceProperties.getKey());
-				aggregatedDevice.setDeviceName(device.getName());
-				aggregatedDevice.setDeviceOnline(device.getStatus().equals(Constant.ONLINE));
-				if (device.getSerialNumber() != null) {
-					aggregatedDevice.setSerialNumber(device.getSerialNumber());
-				}
-				if (device.getMacAddress() != null) {
-					aggregatedDevice.setMacAddresses(Collections.singletonList(device.getMacAddress()));
-				}
-				aggregatedDevice.setProperties(this.generatePropertiesForAggregatedDevice(device, deviceProperties.getValue()));
+		this.devicesProperties.forEach((key, value) -> {
+            Device device = this.devices.stream().filter(d -> d.getId().equals(key)).findAny().orElse(null);
+            if (device != null) {
+                AggregatedDevice aggregatedDevice = new AggregatedDevice();
+                aggregatedDevice.setDeviceId(key);
+                aggregatedDevice.setDeviceName(device.getName());
+                aggregatedDevice.setDeviceOnline(Constant.ONLINE.equals(device.getStatus()));
+                if (device.getSerialNumber() != null) {
+                    aggregatedDevice.setSerialNumber(device.getSerialNumber());
+                }
+                if (device.getMacAddress() != null) {
+                    aggregatedDevice.setMacAddresses(Collections.singletonList(device.getMacAddress()));
+                }
+                aggregatedDevice.setProperties(this.generatePropertiesForAggregatedDevice(device, value));
 
-				newAggregatedDevices.add(aggregatedDevice);
-			}
-		});
+                newAggregatedDevices.add(aggregatedDevice);
+            }
+        });
 		this.aggregatedDevices = newAggregatedDevices;
 
 		return this.aggregatedDevices;
@@ -404,8 +403,8 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		}
 		this.nextCollectionTime = 0;
 		this.aggregatedDevices.clear();
-		this.cachedDevicesProperties.clear();
-		this.devicesProperties.clear();
+		this.cachedDevicesProperties = Collections.emptyMap();
+		this.devicesProperties = Collections.emptyMap();
 		this.devices.clear();
 		this.authorization = null;
 		super.internalDestroy();
