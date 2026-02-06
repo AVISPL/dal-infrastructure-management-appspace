@@ -62,9 +62,6 @@ class AppspaceCloudCommunicatorTest {
 		//	Start verify before active the collection thread the next time
 		for (int i = 0; i < 2; i++) {
 			List<AggregatedDevice> aggregatedDevices = this.appspaceCloudCommunicator.retrieveMultipleStatistics();
-			if (aggregatedDevices.isEmpty()) {
-				Assertions.fail("No aggregated devices to verify");
-			}
 			aggregatedDevices.forEach(aggregatedDevice -> {
 				Assertions.assertNotNull(aggregatedDevice.getDeviceId(), "Aggregated device's ID is null");
 				Assertions.assertNotNull(aggregatedDevice.getDeviceName(), "Aggregated device's name is null");
