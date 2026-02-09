@@ -146,7 +146,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
+					nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
 					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
 					flag = false;
 				}
@@ -180,6 +180,9 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Holds the application configuration properties loaded from the {@code application.properties} file.
 	 */
 	private final Properties applicationProperties;
+
+	/** Device adapter instantiation timestamp. */
+	private final long adapterInitializationTimestamp;
 
 	/**
 	 * Object mapper for JSON serialization and deserialization.
@@ -264,6 +267,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		this.localExtendedStatistics = new ExtendedStatistics();
 		this.objectMapper = new ObjectMapper();
 		this.applicationProperties = new Properties();
+		this.adapterInitializationTimestamp = System.currentTimeMillis();
 
 		this.executorService = null;
 		this.appspaceCloudDataLoader = null;
@@ -327,6 +331,8 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					value = Util.getAggregatorProperty(property, this.lastMonitoringCycleDuration);
 				} else if (AggregatorProperty.MONITORED_DEVICES_TOTAL.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.aggregatedDevices.size());
+				} else if (AggregatorProperty.MONITORED_CYCLE_INTERVAL.getName().equals(property.getName())) {
+					value = Util.getAggregatorProperty(property, this.getMonitoringRate());
 				} else {
 					value = Util.getAggregatorProperty(property, this.applicationProperties);
 				}
@@ -419,8 +425,12 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private void loadProperties(Properties properties) {
 		try {
 			properties.load(getClass().getResourceAsStream("/application.properties"));
+			properties.setProperty(AggregatorProperty.ADAPTER_UPTIME.getProperty(), String.valueOf(this.adapterInitializationTimestamp));
+			properties.setProperty(AggregatorProperty.MONITORED_DEVICES_TOTAL.getProperty(), Constant.NOT_AVAILABLE);
+			properties.setProperty(AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getProperty(), Constant.NOT_AVAILABLE);
+			properties.setProperty(AggregatorProperty.MONITORED_CYCLE_INTERVAL.getProperty(), Constant.NOT_AVAILABLE);
 		} catch (Exception e) {
-			throw new ResourceNotReachableException(Constant.UNABLE_TO_READ_PROPERTIES_FILE);
+			this.logger.error(Constant.UNABLE_TO_READ_PROPERTIES_FILE, e);
 		}
 	}
 
@@ -476,7 +486,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 			return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
 		} catch (CommandFailureException | FailedLoginException e) {
-			throw new FailedLoginException(Constant.LOGIN_FAILED);
+			throw new FailedLoginException(e.getMessage());
 		} catch (Exception e) {
 			throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED, e);
 		}
@@ -498,7 +508,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					}
 			);
 		} catch (Exception e) {
-			throw new ResourceNotReachableException(Constant.DEVICES_API_FAILED, e);
+			throw new IllegalStateException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
 		}
 	}
 
