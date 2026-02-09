@@ -30,7 +30,7 @@ public class Constant {
 	public static final String UNABLE_TO_READ_PROPERTIES_FILE = "Unable to load properties file: application.properties";
 	public static final String LOGIN_FAILED = "Failed to login, please check the username and password";
 	public static final String AUTHORIZATION_API_FAILED = "Failed to request to an authorization API";
-	public static final String DEVICES_API_FAILED = "Failed to request to a devices API";
+	public static final String FETCH_DATA_FAILED = "Device monitoring cannot proceed, the required data could not be fetched from the %s endpoint.";
 	public static final String DEVICE_NOT_NULL = "Device must not be null";
 	public static final String DEVICE_PROPERTIES_NOT_EMPTY = "Device properties must not be empty";
 	public static final String GENERAL_PROPERTY_NOT_NULL = "General property must not be null";

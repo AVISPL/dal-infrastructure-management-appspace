@@ -182,7 +182,7 @@ public class Util {
 	 * "X day(s) Y hour(s) Z minute(s) W second(s)", omitting any zero-value units except seconds.
 	 *
 	 * @param uptime the start time in milliseconds as a string (e.g., "1717581000000")
-	 * @return a formatted duration string like "2 day(s) 3 hour(s) 15 minute(s) 42 second(s)", or null if parsing fails
+	 * @return a formatted duration string like "2 d 3 hr 15 min 42 sec", or null if parsing fails
 	 */
 	private static String mapToUptime(String uptime) {
 		try {

@@ -146,7 +146,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
+					nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
 					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
 					flag = false;
 				}
@@ -486,7 +486,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 			return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
 		} catch (CommandFailureException | FailedLoginException e) {
-			throw new FailedLoginException(Constant.LOGIN_FAILED);
+			throw new FailedLoginException(e.getMessage());
 		} catch (Exception e) {
 			throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED, e);
 		}
@@ -508,7 +508,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					}
 			);
 		} catch (Exception e) {
-			throw new ResourceNotReachableException(Constant.DEVICES_API_FAILED, e);
+			throw new IllegalStateException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
 		}
 	}
 
