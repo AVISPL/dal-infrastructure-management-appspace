@@ -321,21 +321,22 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		try {
 			this.setupData();
 			Map<String, String> properties = new LinkedHashMap<>();
+			Map<String, String> dynamicProperties = new LinkedHashMap<>();
 			Arrays.stream(AggregatorProperty.values()).forEach(property -> {
 				String value;
 				if (AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.lastMonitoringCycleDuration);
+					dynamicProperties.put(property.getName(), value);
 				} else if (AggregatorProperty.MONITORED_DEVICES_TOTAL.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.aggregatedDevices.size());
+					dynamicProperties.put(property.getName(), value);
 				} else {
 					value = Util.getAggregatorProperty(property, this.applicationProperties);
-				}
-
-				if (value != null) {
 					properties.put(property.getName(), value);
 				}
 			});
 			this.localExtendedStatistics.setStatistics(properties);
+			this.localExtendedStatistics.setDynamicStatistics(dynamicProperties);
 		} finally {
 			this.reentrantLock.unlock();
 		}
