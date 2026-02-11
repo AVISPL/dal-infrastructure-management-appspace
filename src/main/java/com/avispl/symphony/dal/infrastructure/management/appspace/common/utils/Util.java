@@ -3,17 +3,13 @@
  */
 package com.avispl.symphony.dal.infrastructure.management.appspace.common.utils;
 
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import com.avispl.symphony.api.dal.error.ResourceNotReachableException;
 import com.avispl.symphony.dal.infrastructure.management.appspace.common.constants.Constant;
@@ -23,6 +19,7 @@ import com.avispl.symphony.dal.infrastructure.management.appspace.models.Propert
 import com.avispl.symphony.dal.infrastructure.management.appspace.types.aggregated.GeneralProperty;
 import com.avispl.symphony.dal.infrastructure.management.appspace.types.aggregated.SettingProperty;
 import com.avispl.symphony.dal.infrastructure.management.appspace.types.aggregator.AggregatorProperty;
+import com.avispl.symphony.dal.util.StringUtils;
 
 /**
  * Util class
@@ -35,6 +32,8 @@ import com.avispl.symphony.dal.infrastructure.management.appspace.types.aggregat
  * @since 1.0.0
  */
 public class Util {
+	private static final Log LOG = LogFactory.getLog(Util.class);
+
 	/**
 	 * Private constructor to prevent instantiation.
 	 */
@@ -49,25 +48,19 @@ public class Util {
 	 * @return The corresponding property value as a {@link String}, or {@code null} if the property is not recognized.
 	 */
 	public static String getAggregatorProperty(AggregatorProperty property, Properties applicationProperties) {
-		String adapterBuildDate = applicationProperties.getProperty("adapter.build.date");
-
+		if (applicationProperties == null) {
+			LOG.warn(String.format("Skip adapter metadata mapping, the version properties data is null with %s", property));
+			return null;
+		}
 		switch (property) {
-			case ADAPTER_BUILD_DATE: {
-				return mapOffsetDatetimeToDatetime(adapterBuildDate);
-			}
 			case ADAPTER_UPTIME: {
-				long elapsedMillis = Util.getElapsedMillis(adapterBuildDate);
-				return formatElapsedTime(elapsedMillis);
+				return mapToUptime(applicationProperties.getProperty(property.getProperty()));
 			}
 			case ADAPTER_UPTIME_MIN: {
-				long elapsedMillis = Util.getElapsedMillis(adapterBuildDate);
-				return String.valueOf(Util.getElapsedMinutes(elapsedMillis));
-			}
-			case ADAPTER_VERSION: {
-				return applicationProperties.getProperty("adapter.version");
+				return mapToUptimeMin(applicationProperties.getProperty(property.getProperty()));
 			}
 			default: {
-				return null;
+				return applicationProperties.getProperty(property.getProperty());
 			}
 		}
 	}
@@ -83,10 +76,9 @@ public class Util {
 		switch (property) {
 			case LAST_MONITORING_CYCLE_DURATION:
 				if (value == null) return "0";
-				return value.longValue() >= 1000
-						? String.valueOf((int) (value.longValue() / 1000))
-						: String.format("%.2f", Math.round((value.longValue() / 1000.0) * 100) / 100.0);
+				return String.valueOf(Math.round(value.longValue() / 1000.0));
 			case MONITORED_DEVICES_TOTAL:
+			case MONITORED_CYCLE_INTERVAL:
 				return String.valueOf(value);
 			default:
 				return null;
@@ -119,7 +111,7 @@ public class Util {
 			case LAST_ONLINE:
 				return device.getLastOnlineAt();
 			case TAGS:
-				return (device.getTags() == null || device.getTags().isEmpty()) ? null : String.join(Constant.DELIMITER, device.getTags());
+				return device.getTags() == null || device.getTags().isEmpty() ? null : String.join(Constant.DELIMITER, device.getTags());
 			case LICENSES:
 				if (device.getLicenses() == null || device.getLicenses().isEmpty()) {
 					return null;
@@ -183,52 +175,69 @@ public class Util {
 	}
 
 	/**
-	 * Converts an offset datetime string to a UTC datetime string.
+	 * Returns the elapsed uptime between the current system time and the given timestamp in milliseconds.
+	 * <p>
+	 * The input timestamp represents the start time in milliseconds (typically from {@link System#currentTimeMillis()}).
+	 * The returned string represents the absolute duration in the format:
+	 * "X day(s) Y hour(s) Z minute(s) W second(s)", omitting any zero-value units except seconds.
 	 *
-	 * @param offsetDatetime The offset datetime string.
-	 * @return The formatted UTC datetime string.
+	 * @param uptime the start time in milliseconds as a string (e.g., "1717581000000")
+	 * @return a formatted duration string like "2 d 3 hr 15 min 42 sec", or null if parsing fails
 	 */
-	private static String mapOffsetDatetimeToDatetime(String offsetDatetime) {
-		return ZonedDateTime.parse(offsetDatetime).toInstant()
-				.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern(Constant.DATETIME_FORMAT));
+	private static String mapToUptime(String uptime) {
+		try {
+			if (StringUtils.isNullOrEmpty(uptime)) {
+				LOG.warn("Skip uptime mapping, the value is null or empty");
+				return null;
+			}
+
+			long uptimeSecond = (System.currentTimeMillis() - Long.parseLong(uptime)) / 1000;
+			long seconds = uptimeSecond % 60;
+			long minutes = uptimeSecond % 3600 / 60;
+			long hours = uptimeSecond % 86400 / 3600;
+			long days = uptimeSecond / 86400;
+			StringBuilder rs = new StringBuilder();
+			if (days > 0) {
+				rs.append(days).append(" d ");
+			}
+			if (hours > 0) {
+				rs.append(hours).append(" hr ");
+			}
+			if (minutes > 0) {
+				rs.append(minutes).append(" min ");
+			}
+			rs.append(seconds).append(" sec");
+
+			return rs.toString().trim();
+		} catch (Exception e) {
+			LOG.error("Failed to mapToUptime with uptime: " + uptime, e);
+			return null;
+		}
 	}
 
 	/**
-	 * Formats elapsed time from milliseconds into a human-readable format.
+	 * Returns the elapsed uptime in **whole minutes** between the current system time and the given timestamp in milliseconds.
+	 * <p>
+	 * The input timestamp represents the start time in milliseconds (typically from {@link System#currentTimeMillis()}).
+	 * The returned string is the total number of minutes that have elapsed, excluding seconds.
 	 *
-	 * @param totalMillis The total elapsed milliseconds.
-	 * @return The formatted time string.
+	 * @param uptime the start time in milliseconds as a string (e.g., "1717581000000")
+	 * @return a string representing the total number of elapsed minutes (e.g., "125"), or null if parsing fails
 	 */
-	private static String formatElapsedTime(long totalMillis) {
-		long totalSeconds = totalMillis / 1000;
-		long days = totalSeconds / (24 * 3600);
-		long hours = (totalSeconds % (24 * 3600)) / 3600;
-		long minutes = (totalSeconds % 3600) / 60;
-		long seconds = totalSeconds % 60;
+	private static String mapToUptimeMin(String uptime) {
+		try {
+			if (StringUtils.isNullOrEmpty(uptime)) {
+				LOG.warn("Skip uptime min mapping, the value is null or empty");
+				return null;
+			}
 
-		return String.format("%d day(s) %d hour(s) %d minute(s) %d second(s)", days, hours, minutes, seconds);
-	}
+			long uptimeSecond = (System.currentTimeMillis() - Long.parseLong(uptime)) / 1000;
+			long minutes = uptimeSecond / 60;
 
-	/**
-	 * Calculates the elapsed milliseconds from a given datetime string.
-	 *
-	 * @param dateTimeStr The datetime string.
-	 * @return The elapsed time in milliseconds.
-	 */
-	private static long getElapsedMillis(String dateTimeStr) {
-		Instant eventInstant = OffsetDateTime.parse(dateTimeStr).toInstant();
-		Instant nowInstant = Instant.now(Clock.systemDefaultZone());
-
-		return Duration.between(eventInstant, nowInstant).toMillis();
-	}
-
-	/**
-	 * Converts elapsed milliseconds into minutes.
-	 *
-	 * @param totalMillis The total elapsed milliseconds.
-	 * @return The equivalent time in minutes.
-	 */
-	private static long getElapsedMinutes(long totalMillis) {
-		return totalMillis / (1000 * 60);
+			return String.valueOf(minutes);
+		} catch (Exception e) {
+			LOG.error("Failed to mapToUptimeMin with uptime: " + uptime, e);
+			return null;
+		}
 	}
 }
