@@ -145,7 +145,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 				}
 				if (flag) {
 					nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
-					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
+					lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 					flag = false;
 				}
 			}
