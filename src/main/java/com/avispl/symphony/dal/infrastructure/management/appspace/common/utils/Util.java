@@ -76,7 +76,7 @@ public class Util {
 		switch (property) {
 			case LAST_MONITORING_CYCLE_DURATION:
 				if (value == null) return "0";
-				return String.valueOf(Math.round(value.longValue() / 1000.0));
+				return String.valueOf(value.longValue());
 			case MONITORED_DEVICES_TOTAL:
 			case MONITORED_CYCLE_INTERVAL:
 				return String.valueOf(value);
