@@ -489,7 +489,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		} catch (CommandFailureException | FailedLoginException e) {
 			throw new FailedLoginException(e.getMessage());
 		} catch (Exception e) {
-			throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED, e);
+			throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
 		}
 	}
 
@@ -509,7 +509,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					}
 			);
 		} catch (Exception e) {
-			throw new IllegalStateException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
+			throw new RuntimeException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
 		}
 	}
 
