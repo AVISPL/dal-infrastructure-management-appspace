@@ -143,7 +143,12 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
+					try {
+						nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
+					} catch (NoSuchMethodError nsme) {
+						nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
+						logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+					}
 					lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 					flag = false;
 				}
@@ -332,12 +337,16 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					value = Util.getAggregatorProperty(property, this.aggregatedDevices.size());
 					dynamicProperties.put(property.getName(), value);
 				} else {
-					if (AggregatorProperty.MONITORED_CYCLE_INTERVAL.getName().equals(property.getName())) {
-						value = Util.getAggregatorProperty(property, this.getMonitoringRate());
-					} else {
-						value = Util.getAggregatorProperty(property, this.applicationProperties);
+					try {
+						if (AggregatorProperty.MONITORED_CYCLE_INTERVAL.getName().equals(property.getName())) {
+							value = Util.getAggregatorProperty(property, this.getMonitoringRate());
+						} else {
+							value = Util.getAggregatorProperty(property, this.applicationProperties);
+						}
+						properties.put(property.getName(), value);
+					} catch (NoSuchMethodError nsme) {
+						logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
 					}
-					properties.put(property.getName(), value);
 				}
 			});
 			this.localExtendedStatistics.setStatistics(properties);
