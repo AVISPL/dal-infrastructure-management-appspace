@@ -437,7 +437,11 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 			properties.setProperty(AggregatorProperty.ADAPTER_UPTIME.getProperty(), String.valueOf(this.adapterInitializationTimestamp));
 			properties.setProperty(AggregatorProperty.MONITORED_DEVICES_TOTAL.getProperty(), Constant.NOT_AVAILABLE);
 			properties.setProperty(AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getProperty(), Constant.NOT_AVAILABLE);
-			properties.setProperty(AggregatorProperty.MONITORED_CYCLE_INTERVAL.getProperty(), String.valueOf(this.getMonitoringRate()));
+			try {
+				properties.setProperty(AggregatorProperty.MONITORED_CYCLE_INTERVAL.getProperty(), String.valueOf(this.getMonitoringRate()));
+			} catch (NoSuchMethodError nsme) {
+				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+			}
 		} catch (Exception e) {
 			this.logger.error(Constant.UNABLE_TO_READ_PROPERTIES_FILE, e);
 		}
