@@ -11,6 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
@@ -18,8 +20,10 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.security.auth.login.FailedLoginException;
 
@@ -126,12 +130,39 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 				}
 				long startCycle = System.currentTimeMillis();
 				if (!flag && nextCollectionTime < System.currentTimeMillis()) {
-					Map<String, List<Property>> newDevicesProperties = new HashMap<>();
-					devices.forEach(device -> {
-						List<Property> properties = getDevicePropertiesDataByDeviceId(device.getId());
-						newDevicesProperties.put(device.getId(), properties);
-					});
-					cachedDevicesProperties = Collections.unmodifiableMap(newDevicesProperties);
+					if (deviceMetadataRetrievalInterval <= 0 || startCycle >= nextDeviceMetadataRetrievalTime) {
+						try {
+							devices = getDevicesData();
+						} catch (Exception e) {
+							logger.error("Error occurred during devices list retrieval.", e);
+						}
+						if (deviceMetadataRetrievalInterval > 0) {
+							nextDeviceMetadataRetrievalTime = startCycle + deviceMetadataRetrievalInterval;
+						}
+					}
+					if (devices.isEmpty()) {
+						logger.info("Device list is empty");
+					} else {
+						Map<String, List<Property>> newDevicesProperties = new ConcurrentHashMap<>();
+						List<Callable<Void>> deviceFetchTasks = new ArrayList<>();
+						for (Device device : devices) {
+							if (!this.inProgress) {
+								break;
+							}
+							deviceFetchTasks.add(() -> {
+								List<Property> properties = getDevicePropertiesDataByDeviceId(device.getId());
+								newDevicesProperties.put(device.getId(), properties);
+								return null;
+							});
+						}
+						try {
+							deviceCollectionExecutorService.invokeAll(deviceFetchTasks);
+						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
+							logger.warn("Interrupted while waiting for device properties retrieval to complete.", e);
+						}
+						cachedDevicesProperties = Collections.unmodifiableMap(newDevicesProperties);
+					}
 					flag = true;
 				}
 
@@ -171,7 +202,18 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * Timeout duration (in milliseconds) for retrieving statistics.
 	 */
-	private static final long RETRIEVE_STATISTICS_TIMEOUT = 3 * 60 * 1000L;
+	private static final long RETRIEVE_STATISTICS_TIMEOUT = 10 * 60 * 1000L;
+
+	/**
+	 * Number of attempts made to retrieve an authorization token before giving up,
+	 * used to smooth over transient (e.g. 5xx) failures from the authorization endpoint.
+	 */
+	private static final int AUTHORIZATION_RETRY_ATTEMPTS = 3;
+
+	/**
+	 * Delay, in milliseconds, between authorization retry attempts.
+	 */
+	private static final long AUTHORIZATION_RETRY_DELAY = 1000L;
 
 	/**
 	 * Lock used for thread synchronization to ensure safe concurrent access.
@@ -197,9 +239,14 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private final ExtendedStatistics localExtendedStatistics;
 
 	/**
-	 * Thread pool for executing background tasks.
+	 * Thread pool hosting the {@link AppspaceCloudDataLoader} background task.
 	 */
 	private ExecutorService executorService;
+
+	/**
+	 * Thread pool used to concurrently retrieve properties for individual devices.
+	 */
+	private ExecutorService deviceCollectionExecutorService;
 
 	/**
 	 * Data loader responsible for retrieving data from Appspace Cloud.
@@ -238,8 +285,10 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 	/**
 	 * List of devices being monitored or managed.
+	 * Reassigned wholesale by the background data loader thread and read from the caller thread,
+	 * so it is kept volatile to make each newly fetched list visible without extra locking.
 	 */
-	private List<Device> devices;
+	private volatile List<Device> devices;
 
 	/**
 	 * Map storing device properties, with device IDs as keys and property lists as values.
@@ -260,6 +309,30 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Identifier for the device location.
 	 */
 	private String locationId;
+
+	/**
+	 * Number of devices requested per page when paginating the devices list endpoint.
+	 */
+	private int devicePageSize = 100;
+
+	/**
+	 * Number of threads used to concurrently retrieve properties for individual devices.
+	 */
+	private int deviceCollectionThreadCount = 8;
+
+	/**
+	 * Interval, in milliseconds, between successive device list (metadata) retrievals.
+	 * Device metadata is relatively static compared to per-device properties, so it does not need to
+	 * be re-fetched on every monitoring cycle. A value of {@code 0} or less disables the interval,
+	 * forcing a fetch on every cycle.
+	 */
+	private long deviceMetadataRetrievalInterval = 5 * 60 * 1000L;
+
+	/**
+	 * Timestamp indicating when the device list is next allowed to be refreshed.
+	 * Left at {@code 0} until the first fetch so that the first cycle always fetches.
+	 */
+	private volatile long nextDeviceMetadataRetrievalTime;
 
 	/**
 	 * Initializes an instance of {@code AppspaceCloudCommunicator}.
@@ -304,6 +377,60 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 */
 	public void setLocationId(String locationId) {
 		this.locationId = locationId;
+	}
+
+	/**
+	 * Retrieves {@link #devicePageSize}
+	 *
+	 * @return value of {@link #devicePageSize}
+	 */
+	public int getDevicePageSize() {
+		return this.devicePageSize;
+	}
+
+	/**
+	 * Sets {@link #devicePageSize} value
+	 *
+	 * @param devicePageSize new value of {@link #devicePageSize}
+	 */
+	public void setDevicePageSize(int devicePageSize) {
+		this.devicePageSize = devicePageSize;
+	}
+
+	/**
+	 * Retrieves {@link #deviceCollectionThreadCount}
+	 *
+	 * @return value of {@link #deviceCollectionThreadCount}
+	 */
+	public int getDeviceCollectionThreadCount() {
+		return this.deviceCollectionThreadCount;
+	}
+
+	/**
+	 * Sets {@link #deviceCollectionThreadCount} value
+	 *
+	 * @param deviceCollectionThreadCount new value of {@link #deviceCollectionThreadCount}
+	 */
+	public void setDeviceCollectionThreadCount(int deviceCollectionThreadCount) {
+		this.deviceCollectionThreadCount = deviceCollectionThreadCount;
+	}
+
+	/**
+	 * Retrieves {@link #deviceMetadataRetrievalInterval}
+	 *
+	 * @return value of {@link #deviceMetadataRetrievalInterval}
+	 */
+	public long getDeviceMetadataRetrievalInterval() {
+		return this.deviceMetadataRetrievalInterval;
+	}
+
+	/**
+	 * Sets {@link #deviceMetadataRetrievalInterval} value
+	 *
+	 * @param deviceMetadataRetrievalInterval new value of {@link #deviceMetadataRetrievalInterval}
+	 */
+	public void setDeviceMetadataRetrievalInterval(long deviceMetadataRetrievalInterval) {
+		this.deviceMetadataRetrievalInterval = deviceMetadataRetrievalInterval;
 	}
 
 	@Override
@@ -360,7 +487,8 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	@Override
 	public List<AggregatedDevice> retrieveMultipleStatistics() throws Exception {
 		this.setupAggregatedData();
-		if (this.devices.isEmpty()) {
+		List<Device> currentDevices = this.devices;
+		if (currentDevices.isEmpty()) {
 			this.logger.info("Device list is empty");
 			return Collections.emptyList();
 		}
@@ -371,7 +499,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 		List<AggregatedDevice> newAggregatedDevices = new ArrayList<>();
 		this.devicesProperties.forEach((key, value) -> {
-            Device device = this.devices.stream().filter(d -> d.getId().equals(key)).findAny().orElse(null);
+            Device device = currentDevices.stream().filter(d -> d.getId().equals(key)).findAny().orElse(null);
             if (device != null) {
                 AggregatedDevice aggregatedDevice = new AggregatedDevice();
                 aggregatedDevice.setDeviceId(key);
@@ -413,6 +541,10 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 			this.executorService.shutdownNow();
 			this.executorService = null;
 		}
+		if (this.deviceCollectionExecutorService != null) {
+			this.deviceCollectionExecutorService.shutdownNow();
+			this.deviceCollectionExecutorService = null;
+		}
 		if (this.localExtendedStatistics.getStatistics() != null) {
 			this.localExtendedStatistics.getStatistics().clear();
 		}
@@ -452,7 +584,6 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void setupData() throws FailedLoginException {
 		this.authorization = this.getAuthorizationData();
-		this.devices = this.getDevicesData();
 	}
 
 	/**
@@ -464,20 +595,18 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 	/**
 	 * Retrieves properties data for all devices.
-	 * If the device list is empty, it returns the cached device properties.
-	 * If the executor service is not initialized, it creates a new thread pool
-	 * and starts the {@link AppspaceCloudDataLoader} to periodically fetch data.
+	 * If the executor services are not initialized, it creates the thread pools used to
+	 * run the {@link AppspaceCloudDataLoader} and to concurrently fetch per-device properties,
+	 * then starts the {@link AppspaceCloudDataLoader} to periodically fetch data.
+	 * The device list itself is (re)populated by the {@link AppspaceCloudDataLoader}, so it may
+	 * still be empty right after the very first call.
 	 *
 	 * @return a map containing device IDs as keys and their corresponding properties as values.
 	 */
 	private Map<String, List<Property>> getDevicesPropertiesData() {
-		if (this.devices.isEmpty()) {
-			this.logger.info("Device list is empty");
-			return this.cachedDevicesProperties;
-		}
-
 		if (this.executorService == null) {
 			this.executorService = Executors.newFixedThreadPool(THREAD_POOL_NUMBER);
+			this.deviceCollectionExecutorService = Executors.newFixedThreadPool(resolveDeviceCollectionThreadCount());
 			this.appspaceCloudDataLoader = new AppspaceCloudDataLoader();
 
 			this.executorService.submit(this.appspaceCloudDataLoader);
@@ -489,40 +618,94 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
+	 * Resolves the actual thread count to use for {@link #deviceCollectionExecutorService}.
+	 * All Appspace API calls target the same host, i.e. the same HTTP route, so sizing the pool
+	 * above {@link #getMaxConnectionsPerRoute()} would only produce threads that block waiting for
+	 * a pooled connection instead of adding real concurrency. A {@code maxConnectionsPerRoute} of
+	 * {@code 0} or less means it has not been explicitly configured, in which case the underlying
+	 * HTTP client falls back to its own default and {@link #deviceCollectionThreadCount} is used as-is.
+	 *
+	 * @return the number of threads to allocate to {@link #deviceCollectionExecutorService}.
+	 */
+	private int resolveDeviceCollectionThreadCount() {
+		int maxConnectionsPerRoute = this.getMaxConnectionsPerRoute();
+		int threadCount = maxConnectionsPerRoute > 0 ? Math.min(this.deviceCollectionThreadCount, maxConnectionsPerRoute) : this.deviceCollectionThreadCount;
+
+		return Math.max(threadCount, 1);
+	}
+
+	/**
 	 * Retrieves authorization data from the API.
+	 * A {@code 401}/{@code 403} response means the credentials themselves are rejected and is
+	 * surfaced immediately as a {@link FailedLoginException}. Any other failure (e.g. a transient
+	 * {@code 5xx}) is retried up to {@link #AUTHORIZATION_RETRY_ATTEMPTS} times before giving up,
+	 * since it does not indicate a credentials problem.
 	 *
 	 * @return an {@code Authorization} object.
 	 */
 	private Authorization getAuthorizationData() throws FailedLoginException {
-		try {
-			AuthorizationReq req = new AuthorizationReq(getPassword(), getLogin());
-
-			return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
-		} catch (CommandFailureException | FailedLoginException e) {
-			throw new FailedLoginException(e.getMessage());
-		} catch (Exception e) {
-			throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
+		AuthorizationReq req = new AuthorizationReq(getPassword(), getLogin());
+		Exception lastError = null;
+		for (int attempt = 1; attempt <= AUTHORIZATION_RETRY_ATTEMPTS; attempt++) {
+			try {
+				return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
+			} catch (FailedLoginException e) {
+				throw e;
+			} catch (CommandFailureException e) {
+				int statusCode = e.getStatusCode();
+				if (statusCode == HttpStatus.UNAUTHORIZED.value() || statusCode == HttpStatus.FORBIDDEN.value()) {
+					FailedLoginException fle = new FailedLoginException(e.getMessage());
+					fle.initCause(e);
+					throw fle;
+				}
+				lastError = e;
+				logger.warn(String.format("Authorization attempt %s/%s failed with status %s, retrying.", attempt, AUTHORIZATION_RETRY_ATTEMPTS, statusCode), e);
+			} catch (Exception e) {
+				throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
+			}
+			if (attempt < AUTHORIZATION_RETRY_ATTEMPTS) {
+				Util.delayExecution(AUTHORIZATION_RETRY_DELAY);
+			}
 		}
+		throw new ResourceNotReachableException(Constant.AUTHORIZATION_API_FAILED, lastError);
 	}
 
 	/**
-	 * Fetches a list of devices from the API.
+	 * Fetches the full list of devices from the API, paginating through the devices endpoint
+	 * using {@link #devicePageSize} as the page size. The endpoint's {@code size} field does not
+	 * reliably reflect the total device count (observed to stay fixed regardless of the requested
+	 * {@code limit} or the actual total), so it is not used here. Instead, pagination stops as soon
+	 * as a page returns fewer devices than requested, which is the standard end-of-data signal for
+	 * offset/limit pagination.
 	 *
 	 * @return List of {@link Device}.
 	 */
 	private List<Device> getDevicesData() {
+		List<Device> allDevices = new ArrayList<>();
+		int limit = Math.max(this.devicePageSize, 1);
+		int start = 0;
 		try {
-			String url = Endpoint.DEVICES.replace(Endpoint.LOCATION_ID, StringUtils.isNullOrEmpty(this.locationId) ? "" : this.locationId);
-			String response = doGet(url);
+			while (true) {
+				String url = String.format(Endpoint.DEVICES, start, limit, StringUtils.isNullOrEmpty(this.locationId) ? "" : this.locationId);
+				String response = doGet(url);
+				JsonNode root = this.objectMapper.readTree(response);
 
-			return this.objectMapper.readValue(
-					this.objectMapper.readTree(response).get(Constant.ITEMS).toPrettyString(),
-					new TypeReference<List<Device>>() {
-					}
-			);
+				List<Device> pageDevices = this.objectMapper.readValue(
+						root.get(Constant.ITEMS).toPrettyString(),
+						new TypeReference<List<Device>>() {
+						}
+				);
+				allDevices.addAll(pageDevices);
+
+				if (pageDevices.size() < limit) {
+					break;
+				}
+				start += pageDevices.size();
+			}
 		} catch (Exception e) {
 			throw new RuntimeException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
 		}
+		return allDevices;
 	}
 
 	/**
