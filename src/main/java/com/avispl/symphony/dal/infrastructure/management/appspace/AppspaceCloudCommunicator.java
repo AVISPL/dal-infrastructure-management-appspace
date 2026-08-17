@@ -205,12 +205,6 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private static final long RETRIEVE_STATISTICS_TIMEOUT = 10 * 60 * 1000L;
 
 	/**
-	 * Number of attempts made to retrieve an authorization token before giving up,
-	 * used to smooth over transient (e.g. 5xx) failures from the authorization endpoint.
-	 */
-	private static final int AUTHORIZATION_RETRY_ATTEMPTS = 3;
-
-	/**
 	 * Delay, in milliseconds, between authorization retry attempts.
 	 */
 	private static final long AUTHORIZATION_RETRY_DELAY = 1000L;
@@ -329,6 +323,13 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private long deviceMetadataRetrievalInterval = 5 * 60 * 1000L;
 
 	/**
+	 * Number of attempts made to retrieve an authorization token before giving up,
+	 * used to smooth over transient (e.g. 5xx) failures from the authorization endpoint.
+	 * Must be within {@code 0-10}.
+	 */
+	private int authorizationRetryAttempts = 3;
+
+	/**
 	 * Timestamp indicating when the device list is next allowed to be refreshed.
 	 * Left at {@code 0} until the first fetch so that the first cycle always fetches.
 	 */
@@ -431,6 +432,24 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 */
 	public void setDeviceMetadataRetrievalInterval(long deviceMetadataRetrievalInterval) {
 		this.deviceMetadataRetrievalInterval = deviceMetadataRetrievalInterval;
+	}
+
+	/**
+	 * Retrieves {@link #authorizationRetryAttempts}
+	 *
+	 * @return value of {@link #authorizationRetryAttempts}
+	 */
+	public int getAuthorizationRetryAttempts() {
+		return this.authorizationRetryAttempts;
+	}
+
+	/**
+	 * Sets {@link #authorizationRetryAttempts} value. The value is clamped to the {@code 0-10} range.
+	 *
+	 * @param authorizationRetryAttempts new value of {@link #authorizationRetryAttempts}
+	 */
+	public void setAuthorizationRetryAttempts(int authorizationRetryAttempts) {
+		this.authorizationRetryAttempts = Math.max(0, Math.min(authorizationRetryAttempts, 10));
 	}
 
 	@Override
@@ -638,7 +657,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Retrieves authorization data from the API.
 	 * A {@code 401}/{@code 403} response means the credentials themselves are rejected and is
 	 * surfaced immediately as a {@link FailedLoginException}. Any other failure (e.g. a transient
-	 * {@code 5xx}) is retried up to {@link #AUTHORIZATION_RETRY_ATTEMPTS} times before giving up,
+	 * {@code 5xx}) is retried up to {@link #authorizationRetryAttempts} times before giving up,
 	 * since it does not indicate a credentials problem.
 	 *
 	 * @return an {@code Authorization} object.
@@ -646,7 +665,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private Authorization getAuthorizationData() throws FailedLoginException {
 		AuthorizationReq req = new AuthorizationReq(getPassword(), getLogin());
 		Exception lastError = null;
-		for (int attempt = 1; attempt <= AUTHORIZATION_RETRY_ATTEMPTS; attempt++) {
+		for (int attempt = 1; attempt <= this.authorizationRetryAttempts; attempt++) {
 			try {
 				return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
 			} catch (FailedLoginException e) {
@@ -659,11 +678,11 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					throw fle;
 				}
 				lastError = e;
-				logger.warn(String.format("Authorization attempt %s/%s failed with status %s, retrying.", attempt, AUTHORIZATION_RETRY_ATTEMPTS, statusCode), e);
+				logger.warn(String.format("Authorization attempt %s/%s failed with status %s, retrying.", attempt, this.authorizationRetryAttempts, statusCode), e);
 			} catch (Exception e) {
 				throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
 			}
-			if (attempt < AUTHORIZATION_RETRY_ATTEMPTS) {
+			if (attempt < this.authorizationRetryAttempts) {
 				Util.delayExecution(AUTHORIZATION_RETRY_DELAY);
 			}
 		}
