@@ -23,7 +23,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.security.auth.login.FailedLoginException;
 
-import com.avispl.symphony.api.common.error.NotAuthorizedException;
 import com.avispl.symphony.api.dal.dto.monitor.ExtendedStatistics;
 import com.avispl.symphony.api.dal.dto.monitor.Statistics;
 import com.avispl.symphony.api.dal.dto.monitor.aggregator.AggregatedDevice;
@@ -115,7 +114,6 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		@Override
 		public void run() {
 			while (this.inProgress) {
-				long startCycle = System.currentTimeMillis();
 				Util.delayExecution(500);
 				if (!this.inProgress) {
 					logger.debug("Main data collection thread is not in progress, breaking.");
@@ -126,9 +124,8 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					logger.debug("The device communicator is paused, data collector is not active.");
 					continue;
 				}
-
-				long currentTimestamp = System.currentTimeMillis();
-				if (!flag && nextCollectionTime < currentTimestamp) {
+				long startCycle = System.currentTimeMillis();
+				if (!flag && nextCollectionTime < System.currentTimeMillis()) {
 					Map<String, List<Property>> newDevicesProperties = new HashMap<>();
 					devices.forEach(device -> {
 						List<Property> properties = getDevicePropertiesDataByDeviceId(device.getId());
@@ -146,8 +143,13 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					Util.delayExecution(1000);
 				}
 				if (flag) {
-					nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
-					lastMonitoringCycleDuration = System.currentTimeMillis() - startCycle;
+					try {
+						nextCollectionTime = System.currentTimeMillis() + (getMonitoringRate() * POLLING_CYCLE_INTERVAL);
+					} catch (NoSuchMethodError nsme) {
+						nextCollectionTime = System.currentTimeMillis() + POLLING_CYCLE_INTERVAL;
+						logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+					}
+					lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 					flag = false;
 				}
 			}
@@ -180,6 +182,9 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Holds the application configuration properties loaded from the {@code application.properties} file.
 	 */
 	private final Properties applicationProperties;
+
+	/** Device adapter instantiation timestamp. */
+	private final long adapterInitializationTimestamp;
 
 	/**
 	 * Object mapper for JSON serialization and deserialization.
@@ -264,6 +269,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		this.localExtendedStatistics = new ExtendedStatistics();
 		this.objectMapper = new ObjectMapper();
 		this.applicationProperties = new Properties();
+		this.adapterInitializationTimestamp = System.currentTimeMillis();
 
 		this.executorService = null;
 		this.appspaceCloudDataLoader = null;
@@ -321,21 +327,30 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		try {
 			this.setupData();
 			Map<String, String> properties = new LinkedHashMap<>();
+			Map<String, String> dynamicProperties = new LinkedHashMap<>();
 			Arrays.stream(AggregatorProperty.values()).forEach(property -> {
 				String value;
 				if (AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.lastMonitoringCycleDuration);
+					dynamicProperties.put(property.getName(), value);
 				} else if (AggregatorProperty.MONITORED_DEVICES_TOTAL.getName().equals(property.getName())) {
 					value = Util.getAggregatorProperty(property, this.aggregatedDevices.size());
+					dynamicProperties.put(property.getName(), value);
 				} else {
-					value = Util.getAggregatorProperty(property, this.applicationProperties);
-				}
-
-				if (value != null) {
-					properties.put(property.getName(), value);
+					try {
+						if (AggregatorProperty.MONITORED_CYCLE_INTERVAL.getName().equals(property.getName())) {
+							value = Util.getAggregatorProperty(property, this.getMonitoringRate());
+						} else {
+							value = Util.getAggregatorProperty(property, this.applicationProperties);
+						}
+						properties.put(property.getName(), value);
+					} catch (NoSuchMethodError nsme) {
+						logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+					}
 				}
 			});
 			this.localExtendedStatistics.setStatistics(properties);
+			this.localExtendedStatistics.setDynamicStatistics(dynamicProperties);
 		} finally {
 			this.reentrantLock.unlock();
 		}
@@ -419,8 +434,16 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private void loadProperties(Properties properties) {
 		try {
 			properties.load(getClass().getResourceAsStream("/application.properties"));
+			properties.setProperty(AggregatorProperty.ADAPTER_UPTIME.getProperty(), String.valueOf(this.adapterInitializationTimestamp));
+			properties.setProperty(AggregatorProperty.MONITORED_DEVICES_TOTAL.getProperty(), Constant.NOT_AVAILABLE);
+			properties.setProperty(AggregatorProperty.LAST_MONITORING_CYCLE_DURATION.getProperty(), Constant.NOT_AVAILABLE);
+			try {
+				properties.setProperty(AggregatorProperty.MONITORED_CYCLE_INTERVAL.getProperty(), String.valueOf(this.getMonitoringRate()));
+			} catch (NoSuchMethodError nsme) {
+				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+			}
 		} catch (Exception e) {
-			throw new ResourceNotReachableException(Constant.UNABLE_TO_READ_PROPERTIES_FILE);
+			this.logger.error(Constant.UNABLE_TO_READ_PROPERTIES_FILE, e);
 		}
 	}
 
@@ -476,9 +499,9 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 
 			return doPost(Endpoint.AUTHORIZATION_TOKEN, req, Authorization.class);
 		} catch (CommandFailureException | FailedLoginException e) {
-			throw new FailedLoginException(Constant.LOGIN_FAILED);
+			throw new FailedLoginException(e.getMessage());
 		} catch (Exception e) {
-			throw new NotAuthorizedException(Constant.AUTHORIZATION_API_FAILED, e);
+			throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
 		}
 	}
 
@@ -498,7 +521,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					}
 			);
 		} catch (Exception e) {
-			throw new ResourceNotReachableException(Constant.DEVICES_API_FAILED, e);
+			throw new RuntimeException(String.format(Constant.FETCH_DATA_FAILED, Endpoint.DEVICES), e);
 		}
 	}
 
