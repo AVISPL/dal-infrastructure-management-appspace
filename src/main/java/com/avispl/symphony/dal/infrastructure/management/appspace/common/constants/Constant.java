@@ -34,4 +34,5 @@ public class Constant {
 	public static final String DEVICE_NOT_NULL = "Device must not be null.";
 	public static final String DEVICE_PROPERTIES_NOT_EMPTY = "Device properties must not be empty.";
 	public static final String GENERAL_PROPERTY_NOT_NULL = "General property must not be null.";
+	public static final String LOCATION_ID_NO_DEVICES = "No devices found for locationId '%s'. Verify that the location exists and has devices assigned.";
 }

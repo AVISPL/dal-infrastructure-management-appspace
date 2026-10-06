@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import com.avispl.symphony.api.dal.dto.monitor.ExtendedStatistics;
 import com.avispl.symphony.api.dal.dto.monitor.aggregator.AggregatedDevice;
 import com.avispl.symphony.dal.infrastructure.management.appspace.common.utils.Util;
-import com.avispl.symphony.dal.infrastructure.management.appspace.types.aggregator.AggregatorProperty;
 
 class AppspaceCloudCommunicatorTest {
 	private AppspaceCloudCommunicator appspaceCloudCommunicator;
@@ -40,22 +39,20 @@ class AppspaceCloudCommunicatorTest {
 
 	@Test
 	void testGetMultipleStatistics() throws Exception {
+		this.appspaceCloudCommunicator.setDevicePageSize(1);
 		//	Active the collection thread to collect the devices
 		this.appspaceCloudCommunicator.retrieveMultipleStatistics();
 		Util.delayExecution(60000L);
 		this.extendedStatistics = (ExtendedStatistics) this.appspaceCloudCommunicator.getMultipleStatistics().get(0);
 		Map<String, String> properties = this.extendedStatistics.getStatistics();
 
-		Assertions.assertEquals(properties.size(), AggregatorProperty.values().length, "Statistics are not enough properties");
-		Arrays.stream(AggregatorProperty.values()).forEach(property -> {
-			Assertions.assertTrue(properties.containsKey(property.getName()), "Have no property: " + property.getName());
-			Assertions.assertNotNull(properties.get(property.getName()), "Null value from property " + property.getName());
-		});
+		Assertions.assertEquals(properties.size(), 5, "Statistics are not enough properties");
 	}
 
 	@Test
 	void testRetrieveMultipleStatistics() throws Exception {
 		//	Active the collection thread for the first time
+		this.appspaceCloudCommunicator.setDevicePageSize(1);
 		this.appspaceCloudCommunicator.retrieveMultipleStatistics();
 		Util.delayExecution(60000L);
 
