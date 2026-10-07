@@ -702,13 +702,13 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Parses {@link #locationId} into a list of distinct, lower-cased location IDs.
+	 * Parses {@link #locationId} into an ordered set of distinct, lower-cased location IDs.
 	 *
-	 * @return list of configured location IDs, empty if no location filter is configured.
+	 * @return set of configured location IDs, empty if no location filter is configured.
 	 */
-	private List<String> parseLocationIds() {
+	private Set<String> parseLocationIds() {
 		if (StringUtils.isNullOrEmpty(this.locationId)) {
-			return Collections.emptyList();
+			return Collections.emptySet();
 		}
 		Set<String> locationIds = new LinkedHashSet<>();
 		for (String rawLocationId : this.locationId.split(",")) {
@@ -717,7 +717,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 				locationIds.add(trimmedLocationId.toLowerCase());
 			}
 		}
-		return new ArrayList<>(locationIds);
+		return locationIds;
 	}
 
 	/**
@@ -729,12 +729,12 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * @return List of {@link Device}.
 	 */
 	private List<Device> getDevicesData() {
-		List<String> locationIds = this.parseLocationIds();
+		Set<String> locationIds = this.parseLocationIds();
 		if (locationIds.isEmpty()) {
 			return this.fetchDevices(null);
 		}
 		if (locationIds.size() == 1) {
-			String filterLocationId = locationIds.get(0);
+			String filterLocationId = locationIds.iterator().next();
 			List<Device> locationDevices = this.fetchDevices(filterLocationId);
 			if (locationDevices.isEmpty()) {
 				logger.warn(String.format(Constant.LOCATION_ID_NO_DEVICES, filterLocationId));

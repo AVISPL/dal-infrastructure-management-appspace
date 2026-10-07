@@ -46,7 +46,7 @@ class AppspaceCloudCommunicatorTest {
 		this.extendedStatistics = (ExtendedStatistics) this.appspaceCloudCommunicator.getMultipleStatistics().get(0);
 		Map<String, String> properties = this.extendedStatistics.getStatistics();
 
-		Assertions.assertEquals(properties.size(), 5, "Statistics are not enough properties");
+		Assertions.assertEquals(5, properties.size(), "Statistics are not enough properties");
 	}
 
 	@Test
