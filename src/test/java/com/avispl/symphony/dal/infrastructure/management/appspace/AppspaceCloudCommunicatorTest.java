@@ -27,7 +27,7 @@ class AppspaceCloudCommunicatorTest {
 		appspaceCloudCommunicator.init();
 		appspaceCloudCommunicator.connect();
 
-		appspaceCloudCommunicator.setLocationId("");
+		appspaceCloudCommunicator.setLocationIdFilter("");
 		this.extendedStatistics = (ExtendedStatistics) this.appspaceCloudCommunicator.getMultipleStatistics().get(0);
 	}
 
