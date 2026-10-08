@@ -8,9 +8,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -142,6 +144,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 					}
 					if (devices.isEmpty()) {
 						logger.info("Device list is empty");
+						cachedDevicesProperties = Collections.emptyMap();
 					} else {
 						Map<String, List<Property>> newDevicesProperties = new ConcurrentHashMap<>();
 						List<Callable<Void>> deviceFetchTasks = new ArrayList<>();
@@ -300,9 +303,17 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	private List<AggregatedDevice> aggregatedDevices;
 
 	/**
-	 * Identifier for the device location.
+	 * Comma-separated list of Appspace location GUIDs used to filter monitored devices.
+	 * <ul>
+	 * <li>empty - all devices of the account are monitored;</li>
+	 * <li>a single ID - devices are filtered by the Appspace API ({@code LocationId} query parameter);</li>
+	 * <li>multiple IDs - the API does not support multiple locations per request, so the full device list
+	 * is retrieved and filtered locally.</li>
+	 * </ul>
+	 * Child locations are not included, each location has to be listed explicitly. IDs are not validated:
+	 * an incorrect ID is passed to the API as is (single ID) or simply matches no devices (multiple IDs).
 	 */
-	private String locationId;
+	private String locationIdFilter;
 
 	/**
 	 * Number of devices requested per page when paginating the devices list endpoint.
@@ -363,21 +374,21 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Retrieves {@link #locationId}
+	 * Retrieves {@link #locationIdFilter}
 	 *
-	 * @return value of {@link #locationId}
+	 * @return value of {@link #locationIdFilter}
 	 */
-	public String getLocationId() {
-		return this.locationId;
+	public String getLocationIdFilter() {
+		return this.locationIdFilter;
 	}
 
 	/**
-	 * Sets {@link #locationId} value
+	 * Sets {@link #locationIdFilter} value
 	 *
-	 * @param locationId new value of {@link #locationId}
+	 * @param locationIdFilter new value of {@link #locationIdFilter}
 	 */
-	public void setLocationId(String locationId) {
-		this.locationId = locationId;
+	public void setLocationIdFilter(String locationIdFilter) {
+		this.locationIdFilter = locationIdFilter;
 	}
 
 	/**
@@ -509,6 +520,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 		List<Device> currentDevices = this.devices;
 		if (currentDevices.isEmpty()) {
 			this.logger.info("Device list is empty");
+			this.aggregatedDevices = new ArrayList<>();
 			return Collections.emptyList();
 		}
 		if (this.devicesProperties.isEmpty()) {
@@ -690,22 +702,74 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Fetches the full list of devices from the API, paginating through the devices endpoint
+	 * Parses {@link #locationIdFilter} into an ordered set of distinct, lower-cased location IDs.
+	 *
+	 * @return set of configured location IDs, empty if no location filter is configured.
+	 */
+	private Set<String> parseLocationIds() {
+		if (StringUtils.isNullOrEmpty(this.locationIdFilter)) {
+			return Collections.emptySet();
+		}
+		Set<String> locationIds = new LinkedHashSet<>();
+		for (String rawLocationId : this.locationIdFilter.split(",")) {
+			String trimmedLocationId = rawLocationId.trim();
+			if (!trimmedLocationId.isEmpty()) {
+				locationIds.add(trimmedLocationId.toLowerCase());
+			}
+		}
+		return locationIds;
+	}
+
+	/**
+	 * Retrieves the list of devices matching {@link #locationIdFilter}.
+	 * With no location configured, all devices are returned. With a single location, filtering is done by the API.
+	 * With multiple locations, the full device list is retrieved and filtered locally, since the API supports only
+	 * one location per request.
+	 *
+	 * @return List of {@link Device}.
+	 */
+	private List<Device> getDevicesData() {
+		Set<String> locationIds = this.parseLocationIds();
+		if (locationIds.isEmpty()) {
+			return this.fetchDevices(null);
+		}
+		if (locationIds.size() == 1) {
+			String filterLocationId = locationIds.iterator().next();
+			List<Device> locationDevices = this.fetchDevices(filterLocationId);
+			if (locationDevices.isEmpty()) {
+				logger.warn(String.format(Constant.LOCATION_ID_NO_DEVICES, filterLocationId));
+			}
+			return locationDevices;
+		}
+		List<Device> locationDevices = this.fetchDevices(null).stream()
+				.filter(device -> device.getLocationId() != null && locationIds.contains(device.getLocationId().toLowerCase()))
+				.collect(Collectors.toList());
+		Set<String> matchedLocationIds = locationDevices.stream().map(device -> device.getLocationId().toLowerCase()).collect(Collectors.toSet());
+		locationIds.stream().filter(id -> !matchedLocationIds.contains(id))
+				.forEach(id -> logger.warn(String.format(Constant.LOCATION_ID_NO_DEVICES, id)));
+		return locationDevices;
+	}
+
+	/**
+	 * Fetches devices from the API, paginating through the devices endpoint
 	 * using {@link #devicePageSize} as the page size. The endpoint's {@code size} field does not
 	 * reliably reflect the total device count (observed to stay fixed regardless of the requested
 	 * {@code limit} or the actual total), so it is not used here. Instead, pagination stops as soon
 	 * as a page returns fewer devices than requested, which is the standard end-of-data signal for
 	 * offset/limit pagination.
 	 *
+	 * @param filterLocationId location ID to filter devices by on the API side, or {@code null} to fetch all devices.
 	 * @return List of {@link Device}.
 	 */
-	private List<Device> getDevicesData() {
+	private List<Device> fetchDevices(String filterLocationId) {
 		List<Device> allDevices = new ArrayList<>();
 		int limit = Math.max(this.devicePageSize, 1);
 		int start = 0;
 		try {
 			while (true) {
-				String url = String.format(Endpoint.DEVICES, start, limit, StringUtils.isNullOrEmpty(this.locationId) ? "" : this.locationId);
+				String url = filterLocationId == null
+						? String.format(Endpoint.DEVICES, start, limit)
+						: String.format(Endpoint.DEVICES_BY_LOCATION, start, limit, filterLocationId);
 				String response = doGet(url);
 				JsonNode root = this.objectMapper.readTree(response);
 
