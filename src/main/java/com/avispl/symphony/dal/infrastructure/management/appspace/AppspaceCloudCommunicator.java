@@ -313,7 +313,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Child locations are not included, each location has to be listed explicitly. IDs are not validated:
 	 * an incorrect ID is passed to the API as is (single ID) or simply matches no devices (multiple IDs).
 	 */
-	private String locationId;
+	private String locationIdFilter;
 
 	/**
 	 * Number of devices requested per page when paginating the devices list endpoint.
@@ -374,21 +374,21 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Retrieves {@link #locationId}
+	 * Retrieves {@link #locationIdFilter}
 	 *
-	 * @return value of {@link #locationId}
+	 * @return value of {@link #locationIdFilter}
 	 */
-	public String getLocationId() {
-		return this.locationId;
+	public String getLocationIdFilter() {
+		return this.locationIdFilter;
 	}
 
 	/**
-	 * Sets {@link #locationId} value
+	 * Sets {@link #locationIdFilter} value
 	 *
-	 * @param locationId new value of {@link #locationId}
+	 * @param locationIdFilter new value of {@link #locationIdFilter}
 	 */
-	public void setLocationId(String locationId) {
-		this.locationId = locationId;
+	public void setLocationIdFilter(String locationIdFilter) {
+		this.locationIdFilter = locationIdFilter;
 	}
 
 	/**
@@ -702,16 +702,16 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Parses {@link #locationId} into an ordered set of distinct, lower-cased location IDs.
+	 * Parses {@link #locationIdFilter} into an ordered set of distinct, lower-cased location IDs.
 	 *
 	 * @return set of configured location IDs, empty if no location filter is configured.
 	 */
 	private Set<String> parseLocationIds() {
-		if (StringUtils.isNullOrEmpty(this.locationId)) {
+		if (StringUtils.isNullOrEmpty(this.locationIdFilter)) {
 			return Collections.emptySet();
 		}
 		Set<String> locationIds = new LinkedHashSet<>();
-		for (String rawLocationId : this.locationId.split(",")) {
+		for (String rawLocationId : this.locationIdFilter.split(",")) {
 			String trimmedLocationId = rawLocationId.trim();
 			if (!trimmedLocationId.isEmpty()) {
 				locationIds.add(trimmedLocationId.toLowerCase());
@@ -721,7 +721,7 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Retrieves the list of devices matching {@link #locationId}.
+	 * Retrieves the list of devices matching {@link #locationIdFilter}.
 	 * With no location configured, all devices are returned. With a single location, filtering is done by the API.
 	 * With multiple locations, the full device list is retrieved and filtered locally, since the API supports only
 	 * one location per request.
