@@ -27,6 +27,7 @@ public class Endpoint {
 	//	Endpoints
 	private static final String PREFIX_API = "api/v3";
 	public static final String AUTHORIZATION_TOKEN = PREFIX_API + "/authorization/token";
-	public static final String DEVICES = PREFIX_API + "/devices?start=%s&limit=%s&LocationId=%s";
+	public static final String DEVICES = PREFIX_API + "/devices?start=%s&limit=%s";
+	public static final String DEVICES_BY_LOCATION = DEVICES + "&LocationId=%s";
 	public static final String DEVICE_PROPERTIES = PREFIX_API + "/networks/devices/" + DEVICE_ID + "/properties";
 }
