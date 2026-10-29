@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -216,6 +217,15 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	 * Lock used for thread synchronization to ensure safe concurrent access.
 	 */
 	private final ReentrantLock reentrantLock;
+
+	/**
+	 * Serializes {@link #obtainRestTemplate()} with {@link #disconnect()}.
+	 * {@link RestCommunicator} disconnects on every {@code 401}, nulling the rest template and the HTTP client under
+	 * two separate locks. Without this lock, a concurrent request can rebuild the rest template around the HTTP client
+	 * that is about to be closed, leaving the adapter with a permanently closed client that never reaches the network
+	 * again (and so never gets another {@code 401} to reset it).
+	 */
+	private final Object httpClientLifecycleLock = new Object();
 
 	/**
 	 * Holds the application configuration properties loaded from the {@code application.properties} file.
@@ -479,6 +489,20 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 	}
 
 	@Override
+	protected RestTemplate obtainRestTemplate() throws Exception {
+		synchronized (this.httpClientLifecycleLock) {
+			return super.obtainRestTemplate();
+		}
+	}
+
+	@Override
+	public void disconnect() throws Exception {
+		synchronized (this.httpClientLifecycleLock) {
+			super.disconnect();
+		}
+	}
+
+	@Override
 	public List<Statistics> getMultipleStatistics() throws Exception {
 		this.reentrantLock.lock();
 		try {
@@ -691,6 +715,11 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 				}
 				lastError = e;
 				logger.warn(String.format("Authorization attempt %s/%s failed with status %s, retrying.", attempt, this.authorizationRetryAttempts, statusCode), e);
+			} catch (IllegalStateException e) {
+				// The HTTP client was closed underneath us (e.g. "Connection pool shut down"); drop it so the next attempt builds a new one
+				lastError = e;
+				logger.warn(String.format("Authorization attempt %s/%s failed locally, resetting HTTP client.", attempt, this.authorizationRetryAttempts), e);
+				this.resetHttpClient();
 			} catch (Exception e) {
 				throw new RuntimeException(Constant.AUTHORIZATION_API_FAILED, e);
 			}
@@ -699,6 +728,17 @@ public class AppspaceCloudCommunicator extends RestCommunicator implements Aggre
 			}
 		}
 		throw new ResourceNotReachableException(Constant.AUTHORIZATION_API_FAILED, lastError);
+	}
+
+	/**
+	 * Disconnects the HTTP client so that the next request builds a new one.
+	 */
+	private void resetHttpClient() {
+		try {
+			this.disconnect();
+		} catch (Exception e) {
+			logger.warn("Unable to reset HTTP client.", e);
+		}
 	}
 
 	/**
