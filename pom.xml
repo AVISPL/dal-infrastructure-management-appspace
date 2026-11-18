@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.avispl.symphony.dal.infrastructure.management.appspace</groupId>
   <artifactId>dal-infrastructure-management-appspace</artifactId>
-  <version>1.0.4</version>
+  <version>1.0.5</version>
   <properties>
     <symphonyApiVersion>RELEASE</symphonyApiVersion>
     <timestamp>${maven.build.timestamp}</timestamp>
@@ -39,14 +39,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>2.19.1</version>
-        <dependencies>
-          <dependency>
-            <groupId>org.junit.platform</groupId>
-            <artifactId>junit-platform-surefire-provider</artifactId>
-            <version>1.0.1</version>
-          </dependency>
-        </dependencies>
+        <version>3.5.4</version>
         <configuration>
           <groups>Mock</groups>
         </configuration>
@@ -206,13 +199,13 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
-      <version>5.7.0-M1</version>
+      <version>5.14.4</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.junit.vintage</groupId>
-      <artifactId>junit-vintage-engine</artifactId>
-      <version>5.6.0-M1</version>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>5.14.4</version>
       <scope>test</scope>
     </dependency>
     <dependency>
